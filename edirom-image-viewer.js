@@ -73,6 +73,53 @@
  * @method setRotation - Set rotation to specific angle.
  * @method getRotation - Get current rotation angle.
  */
+
+// Resolve the component's own script URL so the vendored OpenSeadragon build and its icon images can be located relative to this file, regardless of the deployment path. The component is loaded as an ES module, so import.meta.url is the reliable source; document.currentScript is kept as a fallback for environments that load it as a classic script.
+const _COMPONENT_BASE = (() => {
+    if (document.currentScript) {
+        return new URL('.', document.currentScript.src).href;
+    }
+    try {
+        if (import.meta.url) {
+            return new URL('.', import.meta.url).href;
+        }
+    } catch (_) { }
+    return '';
+})();
+
+// Shared promise so every viewer instance on the page waits for / reuses the same vendored OpenSeadragon build instead of injecting it multiple times.
+let _osdLoadPromise = null;
+
+/**
+ * Ensures the vendored OpenSeadragon build is available as window.OpenSeadragon.
+ * Reuses an already-loaded copy (e.g. provided by the host page) and deduplicates
+ * the script injection across all component instances.
+ * @returns {Promise<void>}
+ */
+function _ensureOpenSeadragon() {
+    if (window.OpenSeadragon) return Promise.resolve();
+
+    if (_osdLoadPromise) return _osdLoadPromise;
+
+    _osdLoadPromise = new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = new URL('vendor/openseadragon/openseadragon.min.js', _COMPONENT_BASE).href;
+        script.onload = () => {
+            if (window.OpenSeadragon) {
+                resolve();
+            } else {
+                reject(new Error('OpenSeadragon loaded but window.OpenSeadragon was not set.'));
+            }
+        };
+        script.onerror = () => {
+            reject(new Error('Failed to load OpenSeadragon from ' + script.src));
+        };
+        document.head.appendChild(script);
+    });
+
+    return _osdLoadPromise;
+}
+
 class EdiromOpenseadragon extends HTMLElement {
     /**
      * Creates an instance of EdiromOpenseadragon.
@@ -300,36 +347,14 @@ class EdiromOpenseadragon extends HTMLElement {
         this.viewerDiv.style.height = '100%';
         this.shadowRoot.appendChild(this.viewerDiv);
 
-        // Load OSD script into document.head so it runs in the global scope
-        // (scripts appended to shadow root do not execute). index.html already
-        // loads OpenSeadragon locally at page load - only fetch the CDN copy as
-        // a fallback when that's missing. Skipping this check used to ALWAYS
-        // inject a second, redundant OpenSeadragon build; when that async CDN
-        // fetch resolved later it silently replaced window.OpenSeadragon
-        // mid-session and re-ran displayOpenSeadragon(), tearing down/rebuilding
-        // every already-initialized viewer against the new global (symptom:
-        // page navigation stops visually updating even though all the
-        // host-side page/attribute state keeps advancing correctly).
-        if (window.OpenSeadragon) {
-            this.set('tilesources', this.getAttribute('tilesources'));
-        } else if (!document.getElementById('osd-script')) {
-            const osdScript = document.createElement('script');
-            osdScript.id = 'osd-script';
-            osdScript.src = "https://cdnjs.cloudflare.com/ajax/libs/openseadragon/4.1.1/openseadragon.min.js";
-            osdScript.onload = () => {
-                if (window.OpenSeadragon) {
-                    this.set('tilesources', this.getAttribute('tilesources'));
-                }
-            };
-            document.head.appendChild(osdScript);
-        } else {
-            // Script tag exists but not yet loaded — wait for it
-            document.getElementById('osd-script').addEventListener('load', () => {
-                if (window.OpenSeadragon) {
-                    this.set('tilesources', this.getAttribute('tilesources'));
-                }
+        // Load the vendored OpenSeadragon build into document.head so it runs in the global scope (scripts appended to a shadow root do not execute). Reuses a host-provided copy when present, and deduplicates the injection across all viewer instances.
+        _ensureOpenSeadragon()
+            .then(() => {
+                this.set('tilesources', this.getAttribute('tilesources'));
+            })
+            .catch((err) => {
+                console.error('Image Viewer: could not load OpenSeadragon.', err);
             });
-        }
     }
 
     /**
@@ -610,7 +635,7 @@ class EdiromOpenseadragon extends HTMLElement {
 
             this.openSeaDragon = OpenSeadragon({
                 element: this.viewerDiv,
-                prefixUrl: 'https://cdnjs.cloudflare.com/ajax/libs/openseadragon/4.1.1/images/',
+                prefixUrl: new URL('vendor/openseadragon/images/', _COMPONENT_BASE).href,
                 preserveViewport: this.preserveviewport === 'true',
                 minZoomLevel: parseFloat(this.minzoomlevel) || 0.5,
                 defaultZoomLevel: parseFloat(this.defaultzoomlevel) || 1,
