@@ -812,17 +812,15 @@ class EdiromOpenseadragon extends HTMLElement {
     setZoom(zoomLevel) {
         if(this.openSeaDragon && !isNaN(zoomLevel)) {
             const viewport = this.openSeaDragon.viewport;
-            // Clamp to the configured min/max zoom ourselves. We apply the zoom
-            // immediately (3rd arg = true) because OSD's animated spring does not
-            // advance in this embedding (animation-frame never fires) — but
-            // immediate zoomTo also BYPASSES OSD's own min/max constraint spring,
-            // so a programmatic zoom (e.g. dragging the zoom bar) could otherwise
-            // shoot past maxZoomLevel / below minZoomLevel. Clamp here so the
-            // zoom bar can never exceed the configured limits.
+            // Clamp the target to the configured min/max zoom, then let OSD's
+            // animated spring ease to it. The clamp is mostly a guard — the
+            // spring would constrain the value anyway — but it keeps the bound
+            // explicit and protects against embeddings where the animation loop
+            // never runs and the constraint would never be applied.
             const clampedZoom = Math.max(
                 viewport.getMinZoom(),
                 Math.min(zoomLevel, viewport.getMaxZoom()));
-            viewport.zoomTo(clampedZoom, null, true);
+            viewport.zoomTo(clampedZoom);
         }
     }
     
@@ -872,7 +870,7 @@ class EdiromOpenseadragon extends HTMLElement {
     // Home/reset view
     home() {
         if(this.openSeaDragon) {
-            this.openSeaDragon.viewport.goHome(true);
+            this.openSeaDragon.viewport.goHome();
         }
     }
     
@@ -1414,7 +1412,7 @@ class EdiromOpenseadragon extends HTMLElement {
             zone.lrx != null && zone.lry != null;
 
         if (!hasZone) {
-            this.openSeaDragon.viewport.goHome(true);
+            this.openSeaDragon.viewport.goHome();
             return;
         }
 
@@ -1422,9 +1420,7 @@ class EdiromOpenseadragon extends HTMLElement {
         const tiledImage = this.openSeaDragon.world.getItemAt(0);
         if (!tiledImage) {
             console.warn('edirom-image-viewer: no TiledImage available for zone conversion.');
-            // immediately=true: see the fitBounds call below - animation doesn't
-            // advance in this embedding, so a non-immediate goHome would never settle.
-            this.openSeaDragon.viewport.goHome(true);
+            this.openSeaDragon.viewport.goHome();
             return;
         }
 
@@ -1434,9 +1430,8 @@ class EdiromOpenseadragon extends HTMLElement {
             Number(zone.lrx) - Number(zone.ulx),
             Number(zone.lry) - Number(zone.uly)
         );
-        // immediately=true: OSD's spring animation does not advance in this
-        // embedding, so an animated fitBounds would never move the viewport.
-        this.openSeaDragon.viewport.fitBounds(rect, true);
+        // Smooth spring animation into the zone 
+        this.openSeaDragon.viewport.fitBounds(rect);
     }
 
     /**
