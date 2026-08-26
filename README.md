@@ -21,6 +21,7 @@ This web component displays IIIF images using the [OpenSeadragon](https://opense
 - **Annotation Overlays** (`annotations-data` / `show-annotations`): Render clickable annotation badges on top of the current image, with a persistent show/hide toggle, category/priority filtering (`visible-categories` / `visible-priorities`), and component-rendered hover tooltips (host-supplied HTML via the `tooltip` field).
 - **Rectangle Fit** (`fitrect`): Fit the viewport to an arbitrary image-pixel rectangle.
 - **View Mode** (`view-mode`): Declarative view-mode attribute that is recorded and re-broadcast for host code to react to.
+- **Host-Driven Overlay Styling** (`overlay-stylesheets`): The component has no built-in knowledge of any file path, preference API, or icon system (e.g. FontAwesome, Material Symbols) — the host supplies which of its own already-loaded stylesheets to clone into the shadow root, and which icon markup (if any) to render per zone via `iconHtml`, keeping the component reusable outside Edirom-Online-Frontend.
 
 ## License
 
@@ -104,7 +105,7 @@ This applies to `pagenumber` attribute and all page-related methods. The compone
 | `triggerhome`            | boolean | Trigger home position reset (set to `"true"` to reset view to initial state).                                                                            | `"false"` |
 | `triggerfullscreen`      | boolean | Trigger fullscreen mode toggle (set to `"true"` to toggle fullscreen).                                                                                   | `"false"` |
 | `openseadragon-options`  | string  | JSON object with additional OpenSeadragon configuration options. Example: `'{"showNavigator": true}'`                             | `""`     |
-| `zones-data`             | string  | JSON object mapping zone keys to zone objects. Each zone: `{ page: number, ulx: number, uly: number, lrx: number, lry: number }` (coordinates optional). Also used for measures and movements via host-chosen namespaced keys. See [Region Navigation](#region-navigation) for details. | `"{}"` |
+| `zones-data`             | string  | JSON object mapping zone keys to zone objects. Each zone: `{ page: number, ulx: number, uly: number, lrx: number, lry: number, containerClass, innerClass, label, group, title, tooltip, fn, dataId, filters, iconHtml }` (all optional besides coordinates). `iconHtml` is host-supplied markup (e.g. `<edirom-icon name="...">`) inserted as-is into the zone's badge — the component has no opinion on what icon system, if any, is used. Also used for measures and movements via host-chosen namespaced keys. See [Region Navigation](#region-navigation) for details. | `"{}"` |
 | `zone`                   | string  | Key of the zone to navigate to. Must exist in `zones-data`. Setting this attribute triggers navigation to the zone. Append `\|<nonce>` to re-fire navigation to the same zone. | `""` |
 | `annotations-data`       | string  | JSON array of annotation overlays. Each entry: `{ idPrefix, id, title, uri, categories, priority, fn, tooltip, plist }`, where `tooltip` is optional host-supplied HTML rendered by the component on hover and `plist` is an array of image-pixel regions `{ id, ulx, uly, lrx, lry, type }`. Rendered as clickable badges. See [Annotation Overlays](#annotation-overlays). | `"[]"` |
 | `show-annotations`       | boolean | Show/hide the rendered annotation overlays. Toggles `visibility` without discarding `annotations-data`; the last state persists across page changes. | `false` |
@@ -112,6 +113,7 @@ This applies to `pagenumber` attribute and all page-related methods. The compone
 | `visible-priorities`     | string  | JSON array of priority ids that should remain visible. Same `["undefined"]` / `[]` / list semantics as `visible-categories`. A badge is shown only when it passes **both** filters. | `null` |
 | `fitrect`                | string  | Fit the viewport to an image-pixel rectangle `"x,y,width,height"`. An optional trailing `,<nonce>` token re-fires the same fit. | `""` |
 | `view-mode`              | string  | Declarative view mode (e.g. `pageBasedView` / `measureBasedView`). Recorded and re-broadcast via the `view-mode-changed` event for host code to react to. | `""` |
+| `overlay-stylesheets`    | string  | JSON array of stylesheet hrefs (or href substrings) to clone into the shadow root, since main-document stylesheets do not cross the shadow boundary. Each entry is matched against already-loaded `<link rel="stylesheet">` tags in the host `<head>`; an entry with no match is used as a literal href. Example: `'["resources/css/annotation-style.css"]'`. | `"[]"` |
 
 ## Public Methods
 

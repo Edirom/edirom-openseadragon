@@ -191,7 +191,7 @@ class EdiromOpenseadragon extends HTMLElement {
      * @returns {Array<string>} The list of observed attributes.
      */
     static get observedAttributes() {
-        return ['preserveviewport', 'clicktozoom', 'minzoomlevel', 'maxzoomlevel', 'shownavigationcontrol', 'sequencemode', 'shownavigator', 'showzoomcontrol', 'showhomecontrol', 'showfullpagecontrol', 'showsequencecontrol', 'tilesources', 'pagenumber', 'zoom', 'rotation', 'triggerhome', 'triggerfullscreen', 'openseadragon-options', 'zones-data', 'zone', 'visible-types', 'hidden-filters', 'fitrect', 'view-mode', 'layers-data', 'visible-layers'];
+        return ['preserveviewport', 'clicktozoom', 'minzoomlevel', 'maxzoomlevel', 'shownavigationcontrol', 'sequencemode', 'shownavigator', 'showzoomcontrol', 'showhomecontrol', 'showfullpagecontrol', 'showsequencecontrol', 'tilesources', 'pagenumber', 'zoom', 'rotation', 'triggerhome', 'triggerfullscreen', 'openseadragon-options', 'zones-data', 'zone', 'visible-types', 'hidden-filters', 'fitrect', 'view-mode', 'layers-data', 'visible-layers', 'overlay-stylesheets'];
     }
 
     /**
@@ -248,50 +248,11 @@ class EdiromOpenseadragon extends HTMLElement {
 
         console.log("Connected to DOM");
 
-        // Inject the overlay stylesheets into the shadow root, since main-document
-        // class rules do not cross the shadow boundary:
-        //   - annotation-style.css : per-category annotIcon glyph rules
-        //   - font-awesome.min.css : FontAwesome icon rules used by some annotIcons
-        // The Bravura / FontAwesome @font-face declarations are NOT duplicated here:
-        // @font-face is resolved document-wide, so the fonts registered by the main
-        // page (theme bundle + font-awesome.min.css) are usable by shadow content.
-        // That keeps annotation-style.css identical to develop (no font/.hidden dups).
-        const cssFiles = [
-            'resources/css/annotation-style.css',
-            'resources/css/font-awesome.min.css'
-        ];
-        cssFiles.forEach(href => {
-            const link = document.createElement('link');
-            link.rel = 'stylesheet';
-            link.href = href;
-            this.shadowRoot.appendChild(link);
-        });
-
-        // Also inject the EDITION's own stylesheet — the same one Application.js
-        // loads into the document <head> from the 'additional_css_path' preference.
-        // Edition-specific annotation styling (e.g. the per-category glyph rules in
-        // an edition's annotation-style.css) lives there, and main-document
-        // stylesheets do not cross the shadow boundary. Cloning the existing head
-        // link keeps this edition-agnostic: any edition that sets additional_css_path
-        // gets its CSS applied to the overlays in this shadow root.
-        try {
-            const cssPref = (typeof getPreference === 'function')
-                ? getPreference('additional_css_path', true) : null;
-            if (cssPref && cssPref.indexOf('/db/') !== -1) {
-                const tail = cssPref.split('/db/')[1];
-                const editionLink = Array.prototype.slice
-                    .call(document.head.querySelectorAll('link[rel="stylesheet"]'))
-                    .find(l => l.href && l.href.indexOf(tail) !== -1);
-                if (editionLink) {
-                    const clone = document.createElement('link');
-                    clone.rel = 'stylesheet';
-                    clone.href = editionLink.href;
-                    this.shadowRoot.appendChild(clone);
-                }
-            }
-        } catch (e) {
-            console.warn('Image Viewer: could not inject edition stylesheet', e);
-        }
+        // Clone whichever host stylesheets the `overlay-stylesheets` attribute
+        // names into the shadow root (main-document class rules do not cross the
+        // shadow boundary). The component has no built-in knowledge of any file
+        // path, preference, or naming convention — see _applyOverlayStylesheets.
+        this._applyOverlayStylesheets(this.getAttribute('overlay-stylesheets'));
 
         // Create a div for the OpenSeadragon viewer
         this.viewerDiv = document.createElement('div');
@@ -330,6 +291,32 @@ class EdiromOpenseadragon extends HTMLElement {
                 }
             });
         }
+    }
+
+
+    _applyOverlayStylesheets(rawJson) {
+        if (!this.shadowRoot) return;
+
+        this.shadowRoot.querySelectorAll('link[data-overlay-stylesheet]').forEach(el => el.remove());
+
+        let hrefs;
+        try {
+            hrefs = JSON.parse(rawJson || '[]');
+        } catch (e) {
+            console.warn('Image Viewer: invalid overlay-stylesheets JSON', e);
+            return;
+        }
+        if (!Array.isArray(hrefs)) return;
+
+        const hostLinks = Array.prototype.slice.call(document.head.querySelectorAll('link[rel="stylesheet"]'));
+        hrefs.forEach(hrefOrMarker => {
+            const match = hostLinks.find(l => l.href && l.href.indexOf(hrefOrMarker) !== -1);
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = match ? match.href : hrefOrMarker;
+            link.setAttribute('data-overlay-stylesheet', '');
+            this.shadowRoot.appendChild(link);
+        });
     }
 
     /**
@@ -406,6 +393,10 @@ class EdiromOpenseadragon extends HTMLElement {
                 if(this.openSeaDragon) {
                     this.openSeaDragon.gestureSettingsMouse.clickToZoom = newPropertyValue === 'true';
                 }
+                break;
+
+            case 'overlay-stylesheets':
+                this._applyOverlayStylesheets(newPropertyValue);
                 break;
 
             case 'zones-data':
@@ -495,11 +486,7 @@ class EdiromOpenseadragon extends HTMLElement {
                 this._applyLayerVisibility();
                 break;
 
-            // Fit the viewport to an image-pixel rectangle. Value format:
-            // "x,y,width,height" with an optional trailing nonce token that is
-            // ignored — the nonce only exists so that repeating the SAME jump
-            // produces a different attribute value and thus re-fires
-            // attributeChangedCallback (used for direct rectangle navigation).
+
             case 'fitrect':
                 if (newPropertyValue) {
                     const parts = String(newPropertyValue).split(',');
@@ -641,13 +628,6 @@ class EdiromOpenseadragon extends HTMLElement {
             });
             console.log('OpenSeadragon viewer initialized successfully:', this.openSeaDragon);
 
-            // OpenSeadragon's built-in full-page mode reparents the viewer
-            // element to <body> and hides the other body children. That breaks
-            // inside a shadow DOM: the viewer is torn out of its host/styles and
-            // the surrounding layout collapses (only page chrome like a header /
-            // footer outside the hidden container survives). Redirect OSD's own
-            // full-page button — and our public toggle — to the standard
-            // Fullscreen API on the component host, which works in shadow DOM.
             this.openSeaDragon.isFullPage = () => this.isFullScreen();
             this.openSeaDragon.setFullScreen = (fullScreen) => {
                 this.setFullScreen(fullScreen);
@@ -698,13 +678,6 @@ class EdiromOpenseadragon extends HTMLElement {
                 const pending = this._pendingZoneAfterPageChange;
                 this._pendingZoneAfterPageChange = null;
 
-                // Apply the region after the new page settles. We can't rely on
-                // 'tile-loaded' alone: it does not fire when the target page's
-                // tiles are already cached (e.g. a page visited before), which
-                // would leave the viewport at the page's home position. Use a
-                // one-shot guard fed by both 'tile-drawn' (fires on cached
-                // redraws too) and a timeout fallback that also runs after
-                // OpenSeadragon's own page-change home reset.
                 let applied = false;
                 const applyPending = () => {
                     if (applied) return;
@@ -999,11 +972,6 @@ class EdiromOpenseadragon extends HTMLElement {
      */
     removeOverlay(overlayId) {
         if (!this.openSeaDragon) return;
-        // OpenSeadragon's removeOverlay(string) resolves the element via
-        // document.getElementById, which CANNOT see elements inside this
-        // component's shadow DOM, so the overlay would never be removed
-        // (e.g. hiding annotations did nothing). Resolve the element from the
-        // shadow root ourselves and pass it directly; fall back to the id.
         const element = this.shadowRoot.getElementById(overlayId);
         this.openSeaDragon.removeOverlay(element || overlayId);
     }
@@ -1303,6 +1271,8 @@ class EdiromOpenseadragon extends HTMLElement {
             if (zone.label != null && zone.label !== '') inner.textContent = zone.label;
             if (zone.title) inner.title = zone.title;
             if (zone.dataId != null) inner.setAttribute('data-edirom-annot-id', zone.dataId);
+            // Host-supplied markup (e.g. a specific icon element/font) — the component has no opinion on icons.
+            if (zone.iconHtml) inner.insertAdjacentHTML('beforeend', zone.iconHtml);
             container.appendChild(inner);
 
             // Track the inner element so the generic filter can toggle it.
@@ -1351,9 +1321,6 @@ class EdiromOpenseadragon extends HTMLElement {
         this._applyOverlayVisibility();
     }
 
-    // ---------------------------------------------------------------
-    //  Zone / measure / movement navigation
-    // ---------------------------------------------------------------
 
     /**
      * Navigates the viewer to the zone identified by `zoneKey` in `_zonesData`.
